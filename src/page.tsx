@@ -147,13 +147,6 @@ const getValidationSchema = (tipoTransaccion: string) => {
   return Yup.object(baseSchema)
 }
 
-interface ApiResponse {
-  detail?: string;
-  success?: boolean;
-  message?: string;
-  transaction_id?: string;
-}
-
 export default function TransactionForm() {
   const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const [currentTipoTransaccion, setCurrentTipoTransaccion] = useState("")
