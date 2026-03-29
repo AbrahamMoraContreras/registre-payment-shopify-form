@@ -1,0 +1,9 @@
+[project]
+name = "backend"
+version = "1.0.0"
+description = "FastAPI backend for transaction registration"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.128.1",
+    "pydantic>=2.0.0",
+]
