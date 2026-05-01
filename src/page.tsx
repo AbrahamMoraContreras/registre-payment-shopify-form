@@ -60,6 +60,10 @@ const tiposDocumento = ["V", "J", "E"]
 const tiposTransaccion = [
   { value: "pago_movil", label: "Pago Móvil" },
   { value: "transferencia", label: "Transferencia Bancaria" },
+  { value: "binance", label: "Binance" },
+  { value: "zelle", label: "Zelle" },
+  { value: "zinli", label: "Zinli" },
+  { value: "debito", label: "Débito" },
 ]
 
 interface FormValues {
@@ -112,13 +116,10 @@ interface PaymentInfo {
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
 
 const getValidationSchema = (tipoTransaccion: string) => {
+  const isDigitalMethod = ["binance", "zelle", "zinli", "debito"].includes(tipoTransaccion);
+
   const baseSchema = {
     tipoTransaccion: Yup.string().required("Seleccione un tipo de transacción"),
-    banco: Yup.string().required("Seleccione un banco"),
-    tipoDocumento: Yup.string().required("Seleccione un tipo de documento"),
-    numeroDocumento: Yup.string()
-      .required("Ingrese el número de documento")
-      .matches(/^[0-9]+$/, "Solo se permiten números"),
     referencia: Yup.string().required("Ingrese la referencia"),
     monto: Yup.string()
       .required("Ingrese el monto pagado")
@@ -126,9 +127,22 @@ const getValidationSchema = (tipoTransaccion: string) => {
     descripcion: Yup.string().max(200, "Máximo 200 caracteres"),
   }
 
+  if (isDigitalMethod) {
+    return Yup.object(baseSchema);
+  }
+
+  const bankSchema = {
+    ...baseSchema,
+    banco: Yup.string().required("Seleccione un banco"),
+    tipoDocumento: Yup.string().required("Seleccione un tipo de documento"),
+    numeroDocumento: Yup.string()
+      .required("Ingrese el número de documento")
+      .matches(/^[0-9]+$/, "Solo se permiten números"),
+  }
+
   if (tipoTransaccion === "pago_movil") {
     return Yup.object({
-      ...baseSchema,
+      ...bankSchema,
       numeroTelefonico: Yup.string()
         .required("Ingrese el número telefónico")
         .matches(/^[0-9]{11}$/, "Debe tener 11 dígitos"),
@@ -137,7 +151,7 @@ const getValidationSchema = (tipoTransaccion: string) => {
 
   if (tipoTransaccion === "transferencia") {
     return Yup.object({
-      ...baseSchema,
+      ...bankSchema,
       numeroCuenta: Yup.string()
         .required("Ingrese el número de cuenta")
         .matches(/^[0-9]{20}$/, "Debe tener 20 dígitos"),
@@ -189,11 +203,16 @@ export default function TransactionForm() {
     
     try {
       const isPagoMovil = values.tipoTransaccion === "pago_movil";
+      const isTransferencia = values.tipoTransaccion === "transferencia";
+      const isDigitalMethod = ["binance", "zelle", "zinli", "debito"].includes(values.tipoTransaccion);
       
-      let backendBankName = values.banco;
-      const bancoFound = bancos.find(b => b.codigo === values.banco);
-      if (bancoFound) {
-         backendBankName = `(${bancoFound.codigo}) ${bancoFound.nombre}`;
+      let backendBankName = isDigitalMethod ? values.tipoTransaccion.toUpperCase() : values.banco;
+      
+      if (!isDigitalMethod) {
+        const bancoFound = bancos.find(b => b.codigo === values.banco);
+        if (bancoFound) {
+           backendBankName = `(${bancoFound.codigo}) ${bancoFound.nombre}`;
+        }
       }
       
       // Adaptar a la estructura del endpoint /public/payment-proof de FastAPI
@@ -202,15 +221,17 @@ export default function TransactionForm() {
          bank_name: backendBankName,
          reference_number: values.referencia,
          amount: parseFloat(values.monto),
-         document_type: values.tipoDocumento,
-         document_number: values.numeroDocumento,
          notes: values.descripcion || "",
       };
       
-      if (isPagoMovil) {
-        payload.phone_number = values.numeroTelefonico;
-      } else {
-        payload.account_number = values.numeroCuenta;
+      if (!isDigitalMethod) {
+         payload.document_type = values.tipoDocumento;
+         payload.document_number = values.numeroDocumento;
+         if (isPagoMovil) {
+           payload.phone_number = values.numeroTelefonico;
+         } else if (isTransferencia) {
+           payload.account_number = values.numeroCuenta;
+         }
       }
       
       const response = await fetch(`${API}/public/payment-proof`, {
@@ -462,6 +483,40 @@ export default function TransactionForm() {
                   </Box>
                 )}
 
+                {["binance", "zelle", "zinli", "debito"].includes(currentTipoTransaccion) && (
+                  <Box sx={{ bgcolor: "primary.50", p: 2, borderRadius: 1, border: "1px solid", borderColor: "primary.100" }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, color: "primary.main", fontWeight: "bold", textTransform: 'capitalize' }}>
+                      💻 {currentTipoTransaccion}
+                    </Typography>
+                    <Stack spacing={1}>
+                      {currentTipoTransaccion === "binance" && (info as any)?.binanceDestino?.details && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="caption" color="text.secondary">Email / Pay ID:</Typography>
+                          <Typography variant="caption" fontWeight="medium">{(info as any).binanceDestino.details}</Typography>
+                        </Box>
+                      )}
+                      {currentTipoTransaccion === "zelle" && (info as any)?.zelleDestino?.details && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="caption" color="text.secondary">Email / Teléfono:</Typography>
+                          <Typography variant="caption" fontWeight="medium">{(info as any).zelleDestino.details}</Typography>
+                        </Box>
+                      )}
+                      {currentTipoTransaccion === "zinli" && (info as any)?.zinliDestino?.details && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="caption" color="text.secondary">Email:</Typography>
+                          <Typography variant="caption" fontWeight="medium">{(info as any).zinliDestino.details}</Typography>
+                        </Box>
+                      )}
+                      {currentTipoTransaccion === "debito" && (info as any)?.debitoDestino?.details && (
+                        <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                          <Typography variant="caption" color="text.secondary">Información:</Typography>
+                          <Typography variant="caption" fontWeight="medium">{(info as any).debitoDestino.details}</Typography>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Box>
+                )}
+
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="caption" color="text.secondary">
                     Métodos aceptados: {info?.metodosAceptados?.join(", ") || "N/A"}
@@ -534,7 +589,9 @@ export default function TransactionForm() {
                           }}
                           onBlur={handleBlur}
                         >
-                          {tiposTransaccion.map((tipo) => (
+                          {tiposTransaccion
+                            .filter(tipo => info?.metodosAceptados?.includes(tipo.label))
+                            .map((tipo) => (
                             <MenuItem key={tipo.value} value={tipo.value}>
                               {tipo.label}
                             </MenuItem>
@@ -790,6 +847,69 @@ export default function TransactionForm() {
                           />
                         </Grid>
 
+                        {/* Monto Pagado */}
+                        <Grid size={12}>
+                          <TextField
+                            fullWidth
+                            id="monto"
+                            name="monto"
+                            label="Monto Pagado (USD)"
+                            placeholder="0.00"
+                            value={values.monto}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            error={touched.monto && Boolean(errors.monto)}
+                            helperText={touched.monto && errors.monto}
+                            slotProps={{
+                              input: {
+                                startAdornment: <Typography sx={{ mr: 1, color: "text.secondary" }}>$</Typography>,
+                              },
+                              htmlInput: { inputMode: "decimal", step: "0.01" },
+                            }}
+                          />
+                        </Grid>
+
+                        {/* Referencia */}
+                        <Grid size={12}>
+                          <TextField
+                            fullWidth
+                            id="referencia"
+                            name="referencia"
+                            label="Referencia"
+                            value={values.referencia}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            error={touched.referencia && Boolean(errors.referencia)}
+                            helperText={touched.referencia && errors.referencia}
+                          />
+                        </Grid>
+
+                        {/* Descripción */}
+                        <Grid size={12}>
+                          <TextField
+                            fullWidth
+                            id="descripcion"
+                            name="descripcion"
+                            label="Descripción del Pago"
+                            placeholder="Ej: Pago de compra en TechStore Venezuela"
+                            value={values.descripcion}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            error={touched.descripcion && Boolean(errors.descripcion)}
+                            helperText={touched.descripcion && errors.descripcion}
+                            multiline
+                            rows={2}
+                            slotProps={{
+                              htmlInput: { maxLength: 200 },
+                            }}
+                          />
+                        </Grid>
+                      </>
+                    )}
+
+                    {/* Campos para Métodos Digitales (Binance, Zelle, Zinli, Debito) */}
+                    {["binance", "zelle", "zinli", "debito"].includes(values.tipoTransaccion) && (
+                      <>
                         {/* Monto Pagado */}
                         <Grid size={12}>
                           <TextField
